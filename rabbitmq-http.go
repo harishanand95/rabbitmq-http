@@ -1,5 +1,5 @@
 // Copyright (C) 2013 Chen "smallfish" Xiaoyu (陈小玉)
-// Updated 2017 by Vasanth Rajaraman, RBCCPS, Indian Institute of Science
+// Updated 2017 by Vasanth Rajaraman, RBCCPS, Indian Institute of Science (ver.0.1.0)
 package main
 
 import (
@@ -14,8 +14,8 @@ import (
 )
 
 var (
-        address = flag.String("address", "0.0.0.0:8000", "bind host:port")
-        amqpUri = flag.String("amqp", "amqp://rbccps:rbccps@123@localhost:5672/", "amqp uri")
+	address = flag.String("address", "10.156.14.6:8989", "bind host:port")
+	amqpUri = flag.String("amqp", "amqp://rbccps:rbccps@123@10.156.14.6:5672/", "amqp uri")
 )
 
 func init() {
@@ -25,10 +25,10 @@ func init() {
 // Entity for HTTP Request Body: Message/Exchange/Queue/QueueBind JSON Input
 type MessageEntity struct {
 	Exchange     string `json:"exchange"`
-	Key          string `json:"resourceID"` // Key          string `json:"key"`
+	Key          string `json:"key"`
 	DeliveryMode uint8  `json:"deliverymode"`
 	Priority     uint8  `json:"priority"`
-	Body         string `json:"data"`
+	Body         string `json:"body"`
 }
 
 type ExchangeEntity struct {
@@ -51,7 +51,7 @@ type QueueBindEntity struct {
 	Queue    string   `json:"queue"`
 	Exchange string   `json:"exchange"`
 	NoWait   bool     `json:"nowait"`
-	Keys     []string `json:"resourceID"` // bind/routing keys  // Keys     []string `json:"keys"`
+	Keys     []string `json:"keys"` // bind/routing keys
 }
 
 // RabbitMQ Operate Wrapper
@@ -166,6 +166,12 @@ func (r *RabbitMQ) ConsumeQueue(queue string, message chan []byte) (err error) {
 	}(deliveries, r.done, message)
 	log.Printf("----------Queue is Empty Now-------");
 	return nil
+	//err = r.conn.Close()
+        //if err != nil {
+        //        log.Printf("[amqp] close error: %s\n", err)
+        //        return err
+        //}
+        //return nil
 }
 
 func (r *RabbitMQ) Close() (err error) {
@@ -214,6 +220,8 @@ func QueueHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if r.Method == "GET" {
 		r.ParseForm()
+
+		log.Printf("----------In GET QueueHandler Now-------");
 		rabbit := new(RabbitMQ)
 		if err := rabbit.Connect(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -221,6 +229,9 @@ func QueueHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		log.Printf("----------Connecting to the Queue-------");
+
+		//defer rabbit.Close()
+		//defer http.Close()
 
 		message := make(chan []byte)
 
@@ -250,9 +261,11 @@ func QueueHandler(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "%s\n", <-message)
 			w.(http.Flusher).Flush()
 			log.Printf("----------Sending data to Client {%v}=============", name);
+			// log.Printf("--> %s",w);
 		}
 
 		rabbit.Close()
+                //r.Close()
 
 	} else {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -281,17 +294,17 @@ func QueueBindHandler(w http.ResponseWriter, r *http.Request) {
 		defer rabbit.Close()
 
 		if r.Method == "POST" {
-			if err = rabbit.BindQueue(entity.Queue, "amq.topic", entity.Keys, entity.NoWait); err != nil {
+			if err = rabbit.BindQueue(entity.Queue, entity.Exchange, entity.Keys, entity.NoWait); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			w.Write([]byte("------- Subscribed -------\n"))
+			w.Write([]byte("bind queue ok"))
 		} else if r.Method == "DELETE" {
-			if err = rabbit.UnBindQueue(entity.Queue, "amq.topic", entity.Keys); err != nil {
+			if err = rabbit.UnBindQueue(entity.Queue, entity.Exchange, entity.Keys); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			w.Write([]byte("------- UnSubscribed -------\n"))
+			w.Write([]byte("unbind queue ok"))
 		}
 	} else {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -319,11 +332,11 @@ func PublishHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		defer rabbit.Close()
 
-		if err = rabbit.Publish("amq.topic", entity.Key, entity.DeliveryMode, entity.Priority, entity.Body); err != nil {
+		if err = rabbit.Publish(entity.Exchange, entity.Key, entity.DeliveryMode, entity.Priority, entity.Body); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		w.Write([]byte("\"publish\"" + "Success" + "\n"))
+		w.Write([]byte("publish message ok"))
 	} else {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
